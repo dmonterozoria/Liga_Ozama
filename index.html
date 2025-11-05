@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Liga de Baloncesto Persistente</title>
+<title>Liga de Baloncesto Automática</title>
 <style>
 body { font-family: Arial, sans-serif; padding: 20px; }
 textarea { width: 100%; height: 100px; margin-bottom: 10px; }
@@ -12,22 +12,20 @@ h2 { margin-top: 20px; }
 ul { list-style: none; padding: 0; }
 li { margin: 3px 0; }
 .equipo { display: inline-block; width: 45%; vertical-align: top; }
-#historial { margin-top: 20px; border-top: 1px solid #ccc; padding-top: 10px; }
 </style>
 </head>
 <body>
 
 <h1>Liga de Baloncesto Automática 🏀</h1>
 
-<h2>Lista de jugadores (marca invitados con "(invitado)")</h2>
+<h2>Lista de jugadores (escribe "(invitado)" en el nombre si aplica)</h2>
 <textarea id="lista"></textarea><br>
-<button onclick="cargarLista()">Cargar lista</button>
+<button onclick="cargarLista()">➕ Agregar jugadores</button>
 <button onclick="siguientePartido()">➡️ Siguiente Partido</button>
 <button onclick="ganaA()">🏆 Gana Equipo A</button>
 <button onclick="ganaB()">🏆 Gana Equipo B</button>
-<button onclick="resetearLiga()">🔄 Resetear Liga</button>
 
-<h2>Partido #<span id="nPartido">0</span> (<span id="modo">normal</span>)</h2>
+<h2>Partido #<span id="nPartido">0</span></h2>
 
 <div class="equipo">
   <h3>Equipo A</h3>
@@ -39,195 +37,160 @@ li { margin: 3px 0; }
   <ul id="equipoB"></ul>
 </div>
 
-<div id="historial">
-  <h3>📋 Historial de partidos</h3>
-  <ul id="listaHistorial"></ul>
-</div>
-
 <script>
 let colaLiga = [];
 let colaInvitados = [];
-let campeon = [];           // equipo que defiende el título
-let A = [], B = [];
-let modo = 'normal';        // 'normal', 'retador', 'campeonVsRetador'
-let nPartido = 0;
-let consecutivosA = 0;
-let consecutivosB = 0;
+let campeon = [];
 let ultimoEnCancha = new Set();
-let historial = [];
+let modo = 'normal'; // 'normal' o 'retador'
+let A = [], B = [];
+let nPartido = 0;
+let consecutivosA = 0, consecutivosB = 0;
+let esperandoRetador = false;
 
-function guardarEstado() {
-  localStorage.setItem('ligaData', JSON.stringify({
-    colaLiga, colaInvitados, campeon, A, B,
-    modo, nPartido, consecutivosA, consecutivosB,
-    historial
-  }));
-}
+// ✅ Permite agregar jugadores sin perder los anteriores
+function cargarLista() {
+  const lines = document.getElementById('lista').value
+    .split('\n')
+    .map(l => l.trim())
+    .filter(l => l);
 
-function cargarEstado() {
-  const data = JSON.parse(localStorage.getItem('ligaData') || '{}');
-  if (data.colaLiga) {
-    Object.assign(window, data);
-    mostrarEquipos();
-    mostrarHistorial();
-  }
-}
+  let nuevos = 0;
 
-function cargarLista(){
-  const lines = document.getElementById('lista').value.split('\n').map(l=>l.trim()).filter(l=>l);
-  if (lines.length < 10) return alert("⚠️ Debes tener al menos 10 jugadores.");
-  colaLiga = [];
-  colaInvitados = [];
-  lines.forEach(j=>{
-    if(j.toLowerCase().includes('(invitado)')){
-      colaInvitados.push(j);
-    } else {
-      colaLiga.push(j);
+  lines.forEach(j => {
+    const jugador = j.trim();
+    const esInvitado = jugador.toLowerCase().includes('(invitado)');
+    if (!colaLiga.includes(jugador) && !colaInvitados.includes(jugador)) {
+      if (esInvitado) colaInvitados.push(jugador);
+      else colaLiga.push(jugador);
+      nuevos++;
     }
   });
-  nPartido = 0;
-  modo='normal';
-  consecutivosA=consecutivosB=0;
-  campeon=[];
-  historial=[];
-  alert("✅ Lista cargada con "+lines.length+" jugadores");
-  guardarEstado();
+
+  alert(`Se agregaron ${nuevos} nuevos jugadores. Total: ${colaLiga.length + colaInvitados.length}`);
+  document.getElementById('lista').value = '';
 }
 
-function tomar(cola,n,ex=new Set()){
-  const seleccion=[];
-  let i=0;
-  while(seleccion.length<n && cola.length>0){
-    const jugador=cola.shift();
-    if(!ex.has(jugador)){
+// 🔄 Tomar jugadores sin repetir
+function tomar(cola, n, ex = new Set()) {
+  const seleccion = [];
+  let i = 0;
+  while (seleccion.length < n && i < cola.length * 3) {
+    const jugador = cola.shift();
+    if (!ex.has(jugador)) {
       seleccion.push(jugador);
       ex.add(jugador);
     }
-    cola.push(jugador);
+    cola.push(jugador); // regresa al final
     i++;
-    if(i>cola.length*2) break;
   }
   return seleccion;
 }
 
-function retador(){
-  let ex=new Set([...ultimoEnCancha, ...campeon]);
-  const L = tomar(colaLiga,6,ex);
-  const I = tomar(colaInvitados,4,ex);
-  let equipo = [...L,...I];
-  while(equipo.length<10){
-    equipo.push(...tomar([...colaLiga,...colaInvitados],10-equipo.length,ex));
-  }
-  return equipo;
-}
-
-function generarEquipos(){
-  if (colaLiga.length + colaInvitados.length < 10) {
-    alert("⚠️ No hay suficientes jugadores para un nuevo partido.");
-    return;
-  }
-
+// 🎮 Generar equipos según la etapa
+function generarEquipos() {
   let ex = new Set([...ultimoEnCancha, ...campeon]);
 
-  if (nPartido === 0) {
-    const primeros = tomar(colaLiga,10,ex);
-    A = primeros.slice(0,5);
-    B = primeros.slice(5,10);
-  } 
-  else if (modo === 'normal') {
-    const nuevos = retador();
-    A = nuevos.slice(0,5);
-    B = nuevos.slice(5,10);
+  if (campeon.length === 0) {
+    // Primera ronda
+    const primeros = tomar(colaLiga, 10, ex);
+    A = primeros.slice(0, 5);
+    B = primeros.slice(5, 10);
   } 
   else if (modo === 'retador') {
-    // partido entre 10 nuevos jugadores
+    // Generar 10 nuevos para definir retador
     const nuevos = retador();
-    A = nuevos.slice(0,5);
-    B = nuevos.slice(5,10);
+    A = nuevos.slice(0, 5);
+    B = nuevos.slice(5, 10);
   } 
-  else if (modo === 'campeonVsRetador') {
-    // campeón enfrenta al retador
-    if (Math.random() < 0.5) {
-      A = campeon;
-      B = retadorActual;
-    } else {
-      A = retadorActual;
-      B = campeon;
-    }
+  else if (modo === 'campeon_vs_retador') {
+    // Campeón vs Retador
+    A = campeon;
+    B = retadorEquipo;
   }
 
   ultimoEnCancha = new Set([...A, ...B]);
   mostrarEquipos();
-  guardarEstado();
 }
 
-function mostrarEquipos(){
-  document.getElementById('equipoA').innerHTML = A.map(j=>"<li>"+j+"</li>").join('');
-  document.getElementById('equipoB').innerHTML = B.map(j=>"<li>"+j+"</li>").join('');
+function retador() {
+  let ex = new Set([...ultimoEnCancha, ...campeon]);
+  const L = tomar(colaLiga, 6, ex);
+  const I = tomar(colaInvitados, 4, ex);
+  const equipo = [...L, ...I];
+  return equipo;
+}
+
+function mostrarEquipos() {
+  document.getElementById('equipoA').innerHTML = A.map(j => "<li>" + j + "</li>").join('');
+  document.getElementById('equipoB').innerHTML = B.map(j => "<li>" + j + "</li>").join('');
   document.getElementById('nPartido').textContent = nPartido;
-  document.getElementById('modo').textContent = modo;
 }
 
-function siguientePartido(){
+function siguientePartido() {
   nPartido++;
+
+  if (modo === 'campeon_vs_retador') {
+    modo = 'retador';
+  }
+
   generarEquipos();
 }
 
-function registrarResultado(ganador, perdedor){
-  historial.push({ partido: nPartido, ganador, perdedor });
-  mostrarHistorial();
-}
+// 🏆 Marcar ganador
+function ganaA() { procesarGanador('A'); }
+function ganaB() { procesarGanador('B'); }
 
-function mostrarHistorial(){
-  document.getElementById('listaHistorial').innerHTML =
-    historial.map(h=>`<li>Partido #${h.partido}: 🏆 ${h.ganador.join(', ')} venció a ${h.perdedor.join(', ')}</li>`).join('');
-}
+let retadorEquipo = [];
 
-let retadorActual = [];
+function procesarGanador(ganador) {
+  const perdedor = ganador === 'A' ? B : A;
+  const equipoGanador = ganador === 'A' ? A : B;
 
-function ganaA(){
-  procesarGanador(A, B);
-}
+  // Registrar ganador y actualizar consecutivos
+  if (equipoGanador.toString() === campeon.toString()) {
+    if (ganador === 'A') consecutivosA++;
+    else consecutivosB++;
+  } else {
+    consecutivosA = ganador === 'A' ? 1 : 0;
+    consecutivosB = ganador === 'B' ? 1 : 0;
+  }
 
-function ganaB(){
-  procesarGanador(B, A);
-}
-
-function procesarGanador(ganador, perdedor){
-  registrarResultado(ganador, perdedor);
-
-  if (modo === 'normal') {
-    // modo normal: si gana dos veces seguidas → se convierte en campeón
-    if (ganador === A) consecutivosA++; else consecutivosA=0;
-    if (ganador === B) consecutivosB++; else consecutivosB=0;
-
-    if (consecutivosA >= 2 || consecutivosB >= 2) {
-      campeon = ganador;
-      modo = 'retador'; // entra modo retador (10 nuevos)
+  // Mover perdedores al final de sus colas
+  perdedor.forEach(p => {
+    if (!colaLiga.includes(p) && !colaInvitados.includes(p)) {
+      if (p.toLowerCase().includes('(invitado)')) colaInvitados.push(p);
+      else colaLiga.push(p);
     }
+  });
+
+  // 🧠 Lógica principal
+  if (campeon.length === 0 && (consecutivosA >= 2 || consecutivosB >= 2)) {
+    // Primer campeón
+    campeon = equipoGanador;
+    modo = 'retador';
+    alert("🏅 Nuevo campeón establecido!");
   } 
-  else if (modo === 'retador') {
-    // el ganador de este partido se convierte en el retador del campeón
-    retadorActual = ganador;
-    modo = 'campeonVsRetador';
+  else if (modo === 'retador' && (consecutivosA >= 2 || consecutivosB >= 2)) {
+    // Ganador del grupo de nuevos -> retador
+    retadorEquipo = equipoGanador;
+    modo = 'campeon_vs_retador';
+    consecutivosA = consecutivosB = 0;
+    alert("⚔️ Se definió un retador. Siguiente partido: Campeón vs Retador");
   } 
-  else if (modo === 'campeonVsRetador') {
-    // campeón vs retador: el que gana es el nuevo campeón
-    campeon = ganador;
-    modo = 'retador'; // inmediatamente busca un nuevo retador
-  }
-
-  guardarEstado();
-}
-
-function resetearLiga(){
-  if(confirm("¿Seguro que quieres reiniciar la liga?")){
-    localStorage.removeItem('ligaData');
-    location.reload();
+  else if (modo === 'campeon_vs_retador') {
+    // Duelo entre campeón y retador
+    if (equipoGanador.toString() === campeon.toString()) {
+      alert("👑 El campeón defendió su título!");
+    } else {
+      campeon = equipoGanador;
+      alert("👑 Nuevo campeón coronado!");
+    }
+    modo = 'retador';
+    consecutivosA = consecutivosB = 0;
   }
 }
-
-cargarEstado();
 </script>
+
 </body>
 </html>
