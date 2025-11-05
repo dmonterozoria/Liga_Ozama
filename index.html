@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Liga de Baloncesto Automática</title>
+<title>Liga de Baloncesto Boveda Ozama</title>
 <style>
 body { font-family: Arial, sans-serif; padding: 20px; }
 textarea { width: 100%; height: 100px; margin-bottom: 10px; }
@@ -18,7 +18,7 @@ li { margin: 3px 0; }
 
 <h1>Liga de Baloncesto Automática 🏀</h1>
 
-<h2>Lista de jugadores (escribe "(invitado)" en el nombre si aplica)</h2>
+<h2>Lista de jugadores (escribe "(invitado)" si aplica)</h2>
 <textarea id="lista"></textarea><br>
 <button onclick="cargarLista()">➕ Agregar jugadores</button>
 <button onclick="siguientePartido()">➡️ Siguiente Partido</button>
@@ -42,11 +42,11 @@ let colaLiga = [];
 let colaInvitados = [];
 let campeon = [];
 let ultimoEnCancha = new Set();
-let modo = 'normal'; // 'normal' o 'retador'
+let modo = 'normal'; // 'normal', 'retador' o 'campeon_vs_retador'
 let A = [], B = [];
 let nPartido = 0;
 let consecutivosA = 0, consecutivosB = 0;
-let esperandoRetador = false;
+let retadorEquipo = [];
 
 // ✅ Permite agregar jugadores sin perder los anteriores
 function cargarLista() {
@@ -67,7 +67,7 @@ function cargarLista() {
     }
   });
 
-  alert(`Se agregaron ${nuevos} nuevos jugadores. Total: ${colaLiga.length + colaInvitados.length}`);
+  alert(`Se agregaron ${nuevos} nuevos jugadores. Total actual: ${colaLiga.length + colaInvitados.length}`);
   document.getElementById('lista').value = '';
 }
 
@@ -75,33 +75,39 @@ function cargarLista() {
 function tomar(cola, n, ex = new Set()) {
   const seleccion = [];
   let i = 0;
-  while (seleccion.length < n && i < cola.length * 3) {
+  while (seleccion.length < n && cola.length > 0 && i < cola.length * 3) {
     const jugador = cola.shift();
     if (!ex.has(jugador)) {
       seleccion.push(jugador);
       ex.add(jugador);
     }
-    cola.push(jugador); // regresa al final
+    cola.push(jugador);
     i++;
   }
   return seleccion;
 }
 
-// 🎮 Generar equipos según la etapa
+// 🎮 Generar equipos con tolerancia a menos jugadores
 function generarEquipos() {
   let ex = new Set([...ultimoEnCancha, ...campeon]);
+  const totalJugadores = colaLiga.length + colaInvitados.length;
+
+  if (totalJugadores < 2) {
+    alert("❗Se necesitan al menos 2 jugadores para un partido.");
+    return;
+  }
 
   if (campeon.length === 0) {
-    // Primera ronda
-    const primeros = tomar(colaLiga, 10, ex);
-    A = primeros.slice(0, 5);
-    B = primeros.slice(5, 10);
+    // Primer partido: con los que haya
+    const primeros = tomar([...colaLiga, ...colaInvitados], Math.min(10, totalJugadores), ex);
+    A = primeros.slice(0, Math.ceil(primeros.length / 2));
+    B = primeros.slice(Math.ceil(primeros.length / 2));
   } 
   else if (modo === 'retador') {
-    // Generar 10 nuevos para definir retador
+    // Retador con los que haya disponibles
     const nuevos = retador();
-    A = nuevos.slice(0, 5);
-    B = nuevos.slice(5, 10);
+    A = nuevos.slice(0, Math.ceil(nuevos.length / 2));
+    B = nuevos.slice(Math.ceil(nuevos.length / 2));
   } 
   else if (modo === 'campeon_vs_retador') {
     // Campeón vs Retador
@@ -115,10 +121,11 @@ function generarEquipos() {
 
 function retador() {
   let ex = new Set([...ultimoEnCancha, ...campeon]);
-  const L = tomar(colaLiga, 6, ex);
-  const I = tomar(colaInvitados, 4, ex);
-  const equipo = [...L, ...I];
-  return equipo;
+  const total = colaLiga.length + colaInvitados.length;
+  const n = Math.min(10, total);
+  const L = tomar(colaLiga, Math.min(6, n), ex);
+  const I = tomar(colaInvitados, Math.min(4, n - L.length), ex);
+  return [...L, ...I];
 }
 
 function mostrarEquipos() {
@@ -137,17 +144,15 @@ function siguientePartido() {
   generarEquipos();
 }
 
-// 🏆 Marcar ganador
+// 🏆 Ganadores
 function ganaA() { procesarGanador('A'); }
 function ganaB() { procesarGanador('B'); }
-
-let retadorEquipo = [];
 
 function procesarGanador(ganador) {
   const perdedor = ganador === 'A' ? B : A;
   const equipoGanador = ganador === 'A' ? A : B;
 
-  // Registrar ganador y actualizar consecutivos
+  // Actualizar consecutivos
   if (equipoGanador.toString() === campeon.toString()) {
     if (ganador === 'A') consecutivosA++;
     else consecutivosB++;
@@ -156,7 +161,7 @@ function procesarGanador(ganador) {
     consecutivosB = ganador === 'B' ? 1 : 0;
   }
 
-  // Mover perdedores al final de sus colas
+  // Reintegrar perdedores
   perdedor.forEach(p => {
     if (!colaLiga.includes(p) && !colaInvitados.includes(p)) {
       if (p.toLowerCase().includes('(invitado)')) colaInvitados.push(p);
@@ -166,20 +171,17 @@ function procesarGanador(ganador) {
 
   // 🧠 Lógica principal
   if (campeon.length === 0 && (consecutivosA >= 2 || consecutivosB >= 2)) {
-    // Primer campeón
     campeon = equipoGanador;
     modo = 'retador';
     alert("🏅 Nuevo campeón establecido!");
   } 
   else if (modo === 'retador' && (consecutivosA >= 2 || consecutivosB >= 2)) {
-    // Ganador del grupo de nuevos -> retador
     retadorEquipo = equipoGanador;
     modo = 'campeon_vs_retador';
     consecutivosA = consecutivosB = 0;
-    alert("⚔️ Se definió un retador. Siguiente partido: Campeón vs Retador");
+    alert("⚔️ Se definió un retador. Próximo: Campeón vs Retador.");
   } 
   else if (modo === 'campeon_vs_retador') {
-    // Duelo entre campeón y retador
     if (equipoGanador.toString() === campeon.toString()) {
       alert("👑 El campeón defendió su título!");
     } else {
